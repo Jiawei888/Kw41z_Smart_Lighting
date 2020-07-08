@@ -1,0 +1,266 @@
+{# source/serialcom/templates/serialcom/index.html #}
+<!DOCTYPE html>
+<html>
+<head>
+	<title>SerialCOM</title>
+
+<script type="text/javascript">
+/**
+ * utils function:
+ */
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+	/**
+	 *  Connect function
+	 */
+	async function waitBack2ConnectText() {
+	  await sleep(3000);
+	  document.getElementById("connect").value = "Connect";
+	}
+	async function waitBack2DisconnectText() {
+	  await sleep(3000);
+	  document.getElementById("connect").value = "Disconnect";
+	}
+
+	function connect_serial(){
+		var xmlhttp;
+		if (window.XMLHttpRequest){  //  IE7+, Firefox, Chrome, Opera, Safari 浏览器执行代码
+		    xmlhttp=new XMLHttpRequest();
+		}else{  // IE6, IE5 浏览器执行代码
+		    xmlhttp=new ActiveXObject("Microsoft.XMLHTTP");
+		}
+		
+		xmlhttp.open("POST", "/serialcom/connect/", true);
+		xmlhttp.setRequestHeader("Content-type","application/x-www-form-urlencoded");
+
+		var conn_status = document.getElementById("connect").value;
+		if (conn_status == "Connect"){
+			xmlhttp.send("connect=" + conn_status +
+						 "&device_select=" + document.getElementById("device_select").value +
+				         "&baud=" + "115200" +
+				         "&csrfmiddlewaretoken=" + document.getElementsByName("csrfmiddlewaretoken")[0].value);
+		}else if(conn_status == "Disconnect"){
+			xmlhttp.send("connect=" + conn_status +
+						 "&device_select=" + document.getElementById("device_select").value +
+				         "&csrfmiddlewaretoken=" + document.getElementsByName("csrfmiddlewaretoken")[0].value);
+		}
+		var IsConnected = ""
+		xmlhttp.onreadystatechange=function()
+		{
+			if (xmlhttp.readyState==4 && xmlhttp.status==200){
+				IsConnected = xmlhttp.responseText;
+				if (conn_status == "Connect"){
+					if (IsConnected == "True"){
+						document.getElementById("connect").value = "Disconnect";
+						/**
+						 * start recv thread
+						 */
+						update_recv(500);
+					}else if(IsConnected == "False"){
+						document.getElementById("connect").value = "FAIL connect!";
+						waitBack2ConnectText();
+					}
+				}else if(conn_status == "Disconnect"){
+					if (IsConnected == "False"){
+						document.getElementById("connect").value = "Connect";
+					}else if(IsConnected == "True"){
+						document.getElementById("connect").value = "FAIL disconnect!";
+						waitBack2DisconnectText();
+					}
+				}
+			}
+		}
+	}
+function initialize(){
+	var xmlhttp_send;
+	if (window.XMLHttpRequest){ //  IE7+, Firefox, Chrome, Opera, Safari 浏览器执行代码
+	    xmlhttp_send=new XMLHttpRequest();
+	}else{ // IE6, IE5 浏览器执行代码
+	    xmlhttp_send=new ActiveXObject("Microsoft.XMLHTTP");
+	}
+	
+	xmlhttp_send.open("POST", "/serialcom/send/", true);
+	xmlhttp_send.setRequestHeader("Content-type","application/x-www-form-urlencoded");
+	xmlhttp_send.send(
+		"send=" + "send" + "&device=" + document.getElementById("device_select").value +
+		"&data=" + "thr create" + "\n" +
+		"&csrfmiddlewaretoken=" + document.getElementsByName("csrfmiddlewaretoken")[1].value);
+	
+}
+function initializeip(){
+	var xmlhttp_send;
+	if (window.XMLHttpRequest){ //  IE7+, Firefox, Chrome, Opera, Safari 浏览器执行代码
+	    xmlhttp_send=new XMLHttpRequest();
+	}else{ // IE6, IE5 浏览器执行代码
+	    xmlhttp_send=new ActiveXObject("Microsoft.XMLHTTP");
+	}
+	
+	xmlhttp_send.open("POST", "/serialcom/send/", true);
+	xmlhttp_send.setRequestHeader("Content-type","application/x-www-form-urlencoded");
+	xmlhttp_send.send(
+		"send=" + "send" + "&device=" + document.getElementById("device_select").value +
+		"&data=" + "getnodesip" + "\n" +
+		"&csrfmiddlewaretoken=" + document.getElementsByName("csrfmiddlewaretoken")[1].value);
+	
+}
+
+</script>
+</head>
+<body>
+	<h1>Smart light control</h1>
+
+	<form action="" method="POST">
+		<div>
+			<select name="device_select" id="device_select">
+				<option>Com?</option>
+			{% for device in serial.devices	%}
+				<option>{{ device }}</option>
+			{% endfor	%}
+			</select>
+
+			<!--<label>Baud:</label>
+			<input type="text" name="baud" id="baud"
+			       value="9600"/>-->
+
+			<input type="button" name="connect" id="connect"
+			       value="Connect" onclick="connect_serial()" />
+			<input type="button" name="tx_send" value="Initialize_Step1" onclick="initialize()"/>
+			<input type="button" name="tx_send" value="Initialize_Step2" onclick="initializeip()"/>
+
+
+			<!--<INPUT type="hidden" name="conn_status" id="conn_status" value="Disconnect"/>-->
+		</div>
+		{% csrf_token %}
+	</form>
+	<br/>
+	<form action="" method="POST" onkeydown="if(event.keyCode==13){return false;}">
+		{% csrf_token %}
+		<div>
+			<!--<textarea name="serial_recv" id="serial_recv"
+			       rows="10" cols="30">
+			</textarea>
+			<br/>-->
+			<input type="hidden" name="click_to_recv" id="click_to_recv"
+			       value="Click to Receive" onclick="click2recv()" />
+			<script>
+				/**
+				 * just clean the textarea at first load this page.
+				 */
+				document.getElementById("serial_recv").value = "";
+
+				function IsConnected(){
+					if (document.getElementById("connect").value == "Disconnect" ||
+						document.getElementById("connect").value == "FAIL disconnect!"){
+						return true;
+					}
+				}
+				async function update_recv(_time){
+					await sleep(_time);
+					if ( IsConnected()/* stop? */ ){
+						recv_and_callback(update_recv, _time)
+					}
+				}
+
+				function recv_and_callback(_callbackfunc, _time){
+					var xmlhttp_recv;
+					if (window.XMLHttpRequest){ //  IE7+, Firefox, Chrome, Opera, Safari 浏览器执行代码
+					    xmlhttp_recv=new XMLHttpRequest();
+					}else{ // IE6, IE5 浏览器执行代码
+					    xmlhttp_recv=new ActiveXObject("Microsoft.XMLHTTP");
+					}
+					
+					xmlhttp_recv.open("GET",
+						              "/serialcom/receive/?device=" +
+						              document.getElementById("device_select").value,
+						              true);
+					xmlhttp_recv.send();
+
+					var str_recv = ""
+					xmlhttp_recv.onreadystatechange=function()
+					{
+						if (xmlhttp_recv.readyState==4 && xmlhttp_recv.status==200){
+							str_recv = xmlhttp_recv.responseText;
+							document.getElementById("serial_recv").value += str_recv;
+							_callbackfunc(_time);
+						}
+					}
+				}
+
+			</script>
+			<br/>
+			<font size="3"><b>LED0</b></font>
+			<input type="button" name="tx_send" value="ON" onclick="click2send(0)"/>
+			<input type="button" name="tx_send" value="OFF" onclick="click2send(1)"/>
+			<br>
+			<font size="3"><b>LED1</b></font>
+			<input type="button" name="tx_send" value="ON" onclick="click2send(2)"/>
+			<input type="button" name="tx_send" value="OFF" onclick="click2send(3)"/>
+			<br>
+			<font size="3"><b>LED2</b></font>
+			<input type="button" name="tx_send" value="ON" onclick="click2send(4)"/>
+			<input type="button" name="tx_send" value="OFF" onclick="click2send(5)"/>
+			<br>
+			<font size="3"><b>LED3</b></font>
+			<input type="button" name="tx_send" value="ON" onclick="click2send(6)"/>
+			<input type="button" name="tx_send" value="OFF" onclick="click2send(7)"/>
+			<br>
+			<!--<a href="javascript:location.reload(true)">Refresh Page</a>-->
+			<script>
+				function click2send(seri_num){
+					var seri_comm;
+					switch(seri_num){
+					case 0:
+					seri_comm = "LED 0 ON";
+					break;
+					case 1:
+					seri_comm = "LED 0 OFF";
+					break;
+					case 2:
+					seri_comm = "LED 1 ON";
+					break;
+					case 3:
+					seri_comm = "LED 1 OFF";
+					break;
+					case 4:
+					seri_comm = "LED 2 ON";
+					break;
+					case 5:
+					seri_comm = "LED 2 OFF";
+					break;
+					case 6:
+					seri_comm = "LED 3 ON";
+					break;
+					case 7:
+					seri_comm = "LED 3 OFF";
+					break;
+					}
+					var xmlhttp_send;
+					if (window.XMLHttpRequest){ //  IE7+, Firefox, Chrome, Opera, Safari 浏览器执行代码
+					    xmlhttp_send=new XMLHttpRequest();
+					}else{ // IE6, IE5 浏览器执行代码
+					    xmlhttp_send=new ActiveXObject("Microsoft.XMLHTTP");
+					}
+					
+					xmlhttp_send.open("POST", "/serialcom/send/", true);
+					xmlhttp_send.setRequestHeader("Content-type","application/x-www-form-urlencoded");
+					xmlhttp_send.send(
+						"send=" + "send" + "&device=" + document.getElementById("device_select").value +
+						"&data=" + seri_comm + "\n" +
+						"&csrfmiddlewaretoken=" + document.getElementsByName("csrfmiddlewaretoken")[1].value);
+
+					var succ_send = 0
+					xmlhttp_send.onreadystatechange=function()
+					{
+						if (xmlhttp_send.readyState==4 && xmlhttp_send.status==200){
+							succ_send = parseInt(xmlhttp_send.responseText);
+							alert("send " + succ_send + "byte(s) success");
+						}
+					}
+				}
+			</script>
+		</div>
+	</form>
+</body>
+</html>
